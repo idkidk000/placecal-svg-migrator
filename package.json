@@ -1,0 +1,25 @@
+{
+  "author": "",
+  "dependencies": {
+    "node-html-parser": "^7.0.2",
+    "typescript": "^5.9.3"
+  },
+  "description": "",
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.2",
+    "@types/node": "^25.2.3"
+  },
+  "keywords": [],
+  "license": "GPL-3.0-only",
+  "main": "index.ts",
+  "name": "svg-converter",
+  "packageManager": "pnpm@10.29.3",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "format": "biome check --write",
+    "lint": "biome lint --reporter=summary",
+    "start": "./index.ts"
+  },
+  "type": "module",
+  "version": "1.0.0"
+}
