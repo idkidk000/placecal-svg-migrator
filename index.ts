@@ -26,41 +26,65 @@ const PATH_COMMAND_MAPPERS = new Map<string, boolean[]>([
   ['t', [true, true]],
   ['q', [true, true, true, true]],
   ['v', [true]],
+  ['z',[]]
 ]);
+
+const COLOUR_CLASSES = new Map<string, string>([
+  ['#5b4e46', 'text-placecal-brown'],
+  ['#fffcf0', 'text-base-background'],
+  ['#fffbef', 'text-home-background'],
+]);
+
+const RENAMES = new Map<string,string>([
+  ['ticked','checkbox_check'],
+  ['unticked','checkbox'],
+  ['selected','radio_check'],
+  ['unselected','radio'],
+])
 
 const sourceDir = process.argv.at(2) ?? DEFAULT_SOURCE_DIR;
 
 const files = (await readdir(sourceDir, { recursive: true, withFileTypes: true }))
   .filter((entry) => entry.isFile() && entry.name.toLocaleLowerCase().endsWith('.svg'))
-  .map(({ name, parentPath }) => ({ name, parentPath }));
-// .slice(0, 3);
+  .map(({ name, parentPath }) => {
+    const baseName = name.replace(/\.svg$/,'')
+    return {
+      parentPath,
+      filePath: join(parentPath,name),
+      iconName: RENAMES.get(baseName) ?? baseName
+    }
+  })
+  .toSorted((a,b)=>a.parentPath.localeCompare(b.parentPath) || a.iconName.localeCompare(b.iconName))
 
-for (const { parentPath, name } of files) {
-  const filePath = join(parentPath, name);
+for (const { filePath, iconName } of files) {
   try {
     const contents = await readFile(filePath, { encoding: 'utf-8' });
     const dom = parse(contents);
     const svg = dom.querySelector('svg');
     if (!svg) throw new Error('no svg elem found');
 
-    const viewbox = svg.getAttribute('viewbox');
-    if (!viewbox) throw new Error('no viewbox found on svg elem');
-    const [x, y, w, h] = viewbox.split(' ').map(parseFloat);
-    console.debug(name, { x, y, w, h });
+    const viewboxString = svg.getAttribute('viewbox');
+    if (!viewboxString) throw new Error('no viewbox found on svg elem');
+    const [x, y, w, h] = viewboxString.split(/\s+/).map(parseFloat);
+    // console.debug(name, { x, y, w, h });
     // TODO: handle later
     if (w !== h) throw new Error('viewbox is not square');
-    if (x !== 0 || y !== 0) throw new Error('viewbox as non-zero offset');
+    if (x !== 0 || y !== 0) throw new Error('viewbox has non-zero offset');
+    const viewbox = { x, y, w, h };
 
-    const remappedPath: string[] = [];
+    // per-elem paths in case an icon should be split into multiple. they're safe to concat if not, since we throw if a path starts with a relative command
+    const remappedPaths: string[][] = [];
 
     for (const shapeTag of SHAPE_TAGS) {
       const elems = dom.querySelectorAll(shapeTag);
       for (const elem of elems) {
+        const remappedPath: string[] = [];
+
         if (shapeTag === 'path') {
           const path = elem.getAttribute('d');
           if (!path) throw new Error('path elem has no d attrib');
 
-          const commandMatches = [...path.matchAll(/(?<command>[a-zA-Z])(?<params>[0-9., -]+)+/g)];
+          const commandMatches = [...path.matchAll(/(?<command>[a-zA-Z])(?<params>[0-9., -]*)+/g)];
           for (const [c, commandMatch] of commandMatches.entries()) {
             const command = commandMatch.groups?.command;
             if (!command) throw new Error(`could not parse command from ${commandMatch[0]}`);
@@ -68,50 +92,52 @@ for (const { parentPath, name } of files) {
             if (c === 0 && remappedPath.length && command.toLocaleUpperCase() !== command)
               throw new Error(`path begins with a relative command ${path}`);
             const paramsString = commandMatch.groups?.params;
-            if (!paramsString) throw new Error(`could not parse params from ${commandMatch[0]}`);
+            // Z (close path) has no params
+            if (typeof paramsString==='undefined') throw new Error(`could not parse params from ${commandMatch[0]}`);
 
             // params are usually split by whitespace or ',', but the leading '-' of a negative is also valid
             const params = [...paramsString.matchAll(/(-?[0-9.]+)/g)].map((match) => parseFloat(match[0]));
-            console.debug({ command, params });
+            // console.debug({ command, params });
 
             const mapper = PATH_COMMAND_MAPPERS.get(command.toLocaleLowerCase());
             if (!mapper) throw new Error(`unhandled command ${command}`);
             // need to mod because it's valid to give multiples of params to imply multiple commands of the same type
-            if (params.length % mapper.length !== 0) throw new Error(`unexpected ${command} param count ${params.join(', ')}`);
+            if (mapper.length && (params.length % mapper.length !== 0))
+              throw new Error(`unexpected ${command} param count ${params.join(', ')}. params.length: ${params.length} mapper.length: ${mapper.length}`);
             remappedPath.push(
               `${command}${params
                 .map((param, i) => {
-                  if (mapper[i % mapper.length]) return parseFloat(((param / w) * TARGET_SIZE).toFixed(MAX_DECIMALS));
+                  if (mapper[i % mapper.length])
+                    return parseFloat(((param / viewbox.w) * TARGET_SIZE).toFixed(MAX_DECIMALS));
                   return param;
                 })
                 .join(PARAM_JOINER)}`
             );
           }
         } else if (shapeTag === 'circle') {
-          const [cx,cy,r] = [
-            elem.getAttribute('cx'),
-            elem.getAttribute('cy'),
-            elem.getAttribute('r'),
-          ]
+          const [cx, cy, r] = [elem.getAttribute('cx'), elem.getAttribute('cy'), elem.getAttribute('r')];
           if ([cx, cy, r].some((param) => typeof param === 'undefined'))
             throw new Error('circle is missing required attribs');
           const [scaledCx, scaledCy, scaledR] = [cx, cy, r].map((param) =>
             // biome-ignore lint/style/noNonNullAssertion: i checked ^^^ but lazily
-            parseFloat(((parseFloat(param!) / w) * TARGET_SIZE).toFixed(MAX_DECIMALS))
+            parseFloat(((parseFloat(param!) / viewbox.w) * TARGET_SIZE).toFixed(MAX_DECIMALS))
           );
+          // TODO: i think this is correct - verify
           remappedPath.push(
             `M${[scaledCx, scaledCy - scaledR].join(PARAM_JOINER)}`,
-            `A${[scaledR, scaledR, 360, 1, 1, 0, 0].join(PARAM_JOINER)}`
+            `A${[scaledR, scaledR, 0, 1, 0, scaledCx+0.001, scaledCy - scaledR].join(PARAM_JOINER)}`
           );
         } else throw new Error(`unhandled shape tag ${shapeTag}`);
+
+        remappedPaths.push(remappedPath);
       }
     }
 
-    console.debug(remappedPath);
-    const path = remappedPath.join(' ');
+    const paths = remappedPaths.map((path) => path.join(' '));
     const colours = [...contents.matchAll(/#[0-9a-fA-F]{3,}/g)].map((match) => match[0]);
+    const classes = colours.map((colour) => COLOUR_CLASSES.get(colour) ?? colour);
 
-    console.log({ name, path, colours });
+    console.log({ iconName, paths, classes });
   } catch (err) {
     console.error('error parsing', filePath, err);
     throw err;
