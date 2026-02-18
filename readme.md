@@ -1,0 +1,1 @@
+Helper util for converting raw SVGs to paths for [PlaceCal](https://github.com/geeksforsocialchange/PlaceCal) `SvgIconsHelper`
