@@ -11,9 +11,6 @@ importers:
       node-html-parser:
         specifier: ^7.0.2
         version: 7.0.2
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.2
@@ -21,6 +18,9 @@ importers:
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
 packages:
 

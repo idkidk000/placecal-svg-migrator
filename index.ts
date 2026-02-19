@@ -17,6 +17,7 @@ const PARAM_JOINER = ',';
 /** all SVG shape tags */
 // https://developer.mozilla.org/en-US/docs/Web/SVG/Tutorials/SVG_from_scratch/Basic_shapes
 const SHAPE_TAGS = ['path', 'circle', 'rect', 'ellipse', 'line', 'polyline', 'polygon'] as const;
+const ZEROISH = 1/10**MAX_DECIMALS
 
 /** SVG path command, ScaleAxis[] of which params should be scaled. length implies param count. this is not necessarily exhaustive */
 // each has an upper (absolute) and lower (relative) variant, though it doesn't matter for our case
@@ -67,6 +68,8 @@ const SKIPS = [
   '../PlaceCal/app/assets/images/icons/menu.svg',
 ];
 
+const DEBUG = false
+
 function getNumberAttrib(elem: HTMLElement, attrib: string): number {
   const value = elem.getAttribute(attrib);
   if (typeof value !== 'string')
@@ -79,7 +82,7 @@ function getViewBox(svg: HTMLElement): { x: number; y: number; w: number; h: num
   if (!viewBoxString) throw new Error('no viewbox found on svg elem');
   const [x, y, w, h] = viewBoxString.split(/\s+/).map(parseFloat);
   const result = { x, y, w, h };
-  console.debug(result);
+  if (DEBUG) console.debug(result);
   return result;
 }
 
@@ -95,7 +98,7 @@ function scaleParam(param: number, axis: ScaleAxis, viewBox: ReturnType<typeof g
   const offset = (axisOffset / longest) * TARGET_SIZE;
   // shift to center non-square source viewbox in a square
   const shift = axisLength === 0 || axisLength === longest ? 0 : (((longest - shortest) / longest) * TARGET_SIZE) / 2;
-  console.debug({ axis, axisLength, shortest, longest, param, scaled, offset, shift });
+  if (DEBUG) console.debug({ axis, axisLength, shortest, longest, param, scaled, offset, shift });
   return parseFloat((scaled - offset + shift).toFixed(MAX_DECIMALS));
 }
 
@@ -109,7 +112,10 @@ function parseParams(text: string | undefined): number[] {
 }
 
 async function processFile(filePath: string) {
-  if (SKIPS.includes(filePath)) return;
+  if (SKIPS.includes(filePath)) {
+    console.info('skipping', filePath)
+    return;
+  }
   const base = basename(filePath).replace(/\.svg$/i, '');
   const iconName = RENAMES.get(base) ?? base.replaceAll('-', '_');
   try {
@@ -162,7 +168,8 @@ async function processFile(filePath: string) {
           ].map((param, i) => scaleParam(param, i === 0 ? 'x' : i === 1 ? 'y' : 'min', viewBox));
           remappedPath.push(
             `M${[cx, cy - r].join(PARAM_JOINER)}`,
-            `A${[r, r, 0, 1, 0, cx + 0.001, cy - r].join(PARAM_JOINER)}`,
+            // start and end need to be slightly off in order to draw a circle with a single arc
+            `A${[r, r, 0, 1, 0, cx + ZEROISH, cy - r].join(PARAM_JOINER)}`,
             'Z'
           );
         } else if (shapeTag === 'polygon') {
@@ -184,7 +191,7 @@ async function processFile(filePath: string) {
     const classes = colours.map((colour) => COLOUR_CLASSES.get(colour) ?? colour);
     const concat = paths.length > 1 ? paths.join(' ') : null;
 
-    console.debug(viewBox);
+    if (DEBUG) console.debug(viewBox);
     console.log({ iconName, paths, classes, concat });
   } catch (err) {
     console.error('error parsing', filePath, err);
