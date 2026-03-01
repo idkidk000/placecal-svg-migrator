@@ -17,7 +17,7 @@ const PARAM_JOINER = ',';
 /** all SVG shape tags */
 // https://developer.mozilla.org/en-US/docs/Web/SVG/Tutorials/SVG_from_scratch/Basic_shapes
 const SHAPE_TAGS = ['path', 'circle', 'rect', 'ellipse', 'line', 'polyline', 'polygon'] as const;
-const ZEROISH = 1/10**MAX_DECIMALS
+const ZEROISH = 1 / 10 ** MAX_DECIMALS;
 
 /** SVG path command, ScaleAxis[] of which params should be scaled. length implies param count. this is not necessarily exhaustive */
 // each has an upper (absolute) and lower (relative) variant, though it doesn't matter for our case
@@ -51,10 +51,6 @@ const RENAMES = new Map<string, string>([
   ['unticked', 'checkbox'],
   ['selected', 'radio_check'],
   ['unselected', 'radio'],
-
-  // misc
-  // menu redo
-  ['menu2', 'menu'],
 ]);
 
 /** files to skip */
@@ -65,10 +61,16 @@ const SKIPS = [
   '../PlaceCal/app/assets/images/icons/arrow/down.svg',
   '../PlaceCal/app/assets/images/icons/arrow/right-grey.svg',
   '../PlaceCal/app/assets/images/icons/arrow/left-grey.svg',
-  '../PlaceCal/app/assets/images/icons/menu.svg',
+  '../PlaceCal/app/assets/images/home/icons/minus-small.svg',
+  '../PlaceCal/app/assets/images/home/icons/plus-small.svg',
+  '../PlaceCal/app/assets/images/home/icons/plus.svg',
+
+  // multi colour
+  '../PlaceCal/app/assets/images/home/icons/award.svg',
+  '../PlaceCal/app/assets/images/home/icons/logo.svg',
 ];
 
-const DEBUG = false
+const DEBUG = false;
 
 function getNumberAttrib(elem: HTMLElement, attrib: string): number {
   const value = elem.getAttribute(attrib);
@@ -86,7 +88,12 @@ function getViewBox(svg: HTMLElement): { x: number; y: number; w: number; h: num
   return result;
 }
 
-function scaleParam(param: number, axis: ScaleAxis, viewBox: ReturnType<typeof getViewBox>): number {
+function scaleParam(
+  isRelative: boolean,
+  param: number,
+  axis: ScaleAxis,
+  viewBox: ReturnType<typeof getViewBox>
+): number {
   if (!axis) return param;
   const [shortest, longest] = [viewBox.w, viewBox.h].toSorted((a, b) => a - b);
   const axisLength = axis === 'x' ? viewBox.w : axis === 'y' ? viewBox.h : 0;
@@ -96,8 +103,12 @@ function scaleParam(param: number, axis: ScaleAxis, viewBox: ReturnType<typeof g
   // min axis is only used for circle radius and has no offset or shift
   // subtract source viewbox offset so final viewbox offset is 0
   const offset = (axisOffset / longest) * TARGET_SIZE;
-  // shift to center non-square source viewbox in a square
-  const shift = axisLength === 0 || axisLength === longest ? 0 : (((longest - shortest) / longest) * TARGET_SIZE) / 2;
+  // shift absolute-position params to center non-square source viewbox
+  const shift = isRelative
+    ? 0
+    : axisLength === 0 || axisLength === longest
+      ? 0
+      : (((longest - shortest) / longest) * TARGET_SIZE) / 2;
   if (DEBUG) console.debug({ axis, axisLength, shortest, longest, param, scaled, offset, shift });
   return parseFloat((scaled - offset + shift).toFixed(MAX_DECIMALS));
 }
@@ -113,7 +124,7 @@ function parseParams(text: string | undefined): number[] {
 
 async function processFile(filePath: string) {
   if (SKIPS.includes(filePath)) {
-    console.info('skipping', filePath)
+    console.info('skipping', filePath);
     return;
   }
   const base = basename(filePath).replace(/\.svg$/i, '');
@@ -146,6 +157,7 @@ async function processFile(filePath: string) {
               throw new Error(`path begins with a relative command ${path}`);
 
             const params = parseParams(commandMatch.groups?.params);
+            if (DEBUG) console.debug(commandMatch[0], { command, params });
 
             const mapper = PATH_COMMAND_MAPPERS.get(command.toLocaleLowerCase());
             if (!mapper) throw new Error(`unhandled command ${command}`);
@@ -156,7 +168,9 @@ async function processFile(filePath: string) {
               );
             remappedPath.push(
               `${command}${params
-                .map((param, i) => scaleParam(param, mapper[i % mapper.length], viewBox))
+                .map((param, i) =>
+                  scaleParam(command.toLocaleLowerCase() === command, param, mapper[i % mapper.length], viewBox)
+                )
                 .join(PARAM_JOINER)}`
             );
           }
@@ -165,7 +179,7 @@ async function processFile(filePath: string) {
             getNumberAttrib(elem, 'cx'),
             getNumberAttrib(elem, 'cy'),
             getNumberAttrib(elem, 'r'),
-          ].map((param, i) => scaleParam(param, i === 0 ? 'x' : i === 1 ? 'y' : 'min', viewBox));
+          ].map((param, i) => scaleParam(false, param, i === 0 ? 'x' : i === 1 ? 'y' : 'min', viewBox));
           remappedPath.push(
             `M${[cx, cy - r].join(PARAM_JOINER)}`,
             // start and end need to be slightly off in order to draw a circle with a single arc
@@ -174,7 +188,7 @@ async function processFile(filePath: string) {
           );
         } else if (shapeTag === 'polygon') {
           const points = parseParams(elem.getAttribute('points')).map((param, i) =>
-            scaleParam(param, i % 2 ? 'y' : 'x', viewBox)
+            scaleParam(false, param, i % 2 ? 'y' : 'x', viewBox)
           );
           if (points.length < 4 || points.length % 2 !== 0)
             throw new Error(`unexpected points length ${points.length}`);
@@ -192,7 +206,7 @@ async function processFile(filePath: string) {
     const concat = paths.length > 1 ? paths.join(' ') : null;
 
     if (DEBUG) console.debug(viewBox);
-    console.log({ iconName, paths, classes, concat });
+    console.log({ filePath, iconName, paths, classes, concat });
   } catch (err) {
     console.error('error parsing', filePath, err);
     throw err;
